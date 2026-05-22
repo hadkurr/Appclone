@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">App Cloner</string>
+    <string name="tab_all_apps">All Apps</string>
+    <string name="tab_cloned">Cloned</string>
+    <string name="search_hint">Search apps...</string>
+    <string name="clone_button">Clone</string>
+    <string name="clone_config_title">Clone Configuration</string>
+    <string name="package_name_label">New Package Name</string>
+    <string name="app_name_label">New App Name</string>
+    <string name="start_clone">Start Clone</string>
+    <string name="cloning_progress">Cloning in progress...</string>
+    <string name="clone_success">Clone successful!</string>
+    <string name="clone_failed">Clone failed</string>
+    <string name="install_clone">Install Clone</string>
+    <string name="delete_clone">Delete</string>
+    <string name="launch_clone">Launch</string>
+    <string name="no_apps_found">No apps found</string>
+    <string name="no_cloned_apps">No cloned apps yet.\nSelect an app to clone!</string>
+    <string name="extracting_apk">Extracting APK...</string>
+    <string name="modifying_package">Modifying package name...</string>
+    <string name="signing_apk">Signing APK...</string>
+    <string name="permission_required">Storage permission required</string>
+    <string name="version_label">Version</string>
+    <string name="original_package">Original Package</string>
+    <string name="cloned_package">Cloned Package</string>
+    <string name="clone_suffix">_clone</string>
+    <string name="about">About</string>
+    <string name="about_description">App Cloner v1.0\nClone any app with a different package name and separate data.</string>
+</resources>
