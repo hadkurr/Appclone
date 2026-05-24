@@ -1,133 +1,113 @@
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
-import { Feather } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { useState, useCallback } from 'react';
-import { useProfiles } from '../../context/ProfileContext';
-import colors from '../../hooks/useColors';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from "react-native";
+import { Feather } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { useProfiles } from "../../context/ProfileContext";
+import { colors } from "../../hooks/useColors";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-export default function DashboardScreen() {
+export default function Dashboard() {
+  const { profiles } = useProfiles();
   const router = useRouter();
-  const { profiles, sessions, getRunningCount, getSuccessRate, loading } = useProfiles();
-  const [refreshing, setRefreshing] = useState(false);
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 500);
-  }, []);
+  const totalProfiles = profiles.length;
+  const running = profiles.filter((p) => p.status === "running").length;
+  const idle = profiles.filter((p) => p.status === "idle").length;
+  const errored = profiles.filter((p) => p.status === "error").length;
+  const successRate = totalProfiles > 0
+    ? Math.round(((totalProfiles - errored) / totalProfiles) * 100)
+    : 100;
 
-  const runningCount = getRunningCount();
-  const successRate = getSuccessRate();
-  const recentSessions = sessions.slice(0, 10);
-
-  const stats = [
-    { label: 'Total Profiles', value: profiles.length.toString(), icon: 'users' as const, color: colors.primary },
-    { label: 'Running', value: runningCount.toString(), icon: 'play-circle' as const, color: colors.success },
-    { label: 'Success Rate', value: `${successRate}%`, icon: 'check-circle' as const, color: colors.info },
-    { label: 'Sessions', value: sessions.length.toString(), icon: 'activity' as const, color: colors.warning },
-  ];
+  const recentProfiles = [...profiles]
+    .sort((a, b) => b.lastUsed - a.lastUsed)
+    .slice(0, 5);
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
-      }
-    >
-      <Text style={styles.greeting}>Browser Profile Manager</Text>
-      <Text style={styles.subtitle}>Manage your browser profiles</Text>
+    <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={styles.content}>
+        <Text style={styles.title}>Dashboard</Text>
+        <Text style={styles.subtitle}>Browser Profile Manager</Text>
 
-      <View style={styles.statsGrid}>
-        {stats.map((stat, index) => (
-          <View key={index} style={styles.statCard}>
-            <View style={[styles.statIconContainer, { backgroundColor: stat.color + '20' }]}>
-              <Feather name={stat.icon} size={18} color={stat.color} />
-            </View>
-            <Text style={styles.statValue}>{stat.value}</Text>
-            <Text style={styles.statLabel}>{stat.label}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.quickActions}>
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.actionRow}>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => router.push('/profiles')}
-          >
-            <Feather name="plus-circle" size={20} color={colors.primary} />
-            <Text style={styles.actionText}>New Profile</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => router.push('/browser/multi')}
-          >
-            <Feather name="grid" size={20} color={colors.success} />
-            <Text style={styles.actionText}>Multi Browser</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={() => router.push('/sync')}
-          >
-            <Feather name="zap" size={20} color={colors.warning} />
-            <Text style={styles.actionText}>Script Runner</Text>
-          </TouchableOpacity>
+        <View style={styles.statsGrid}>
+          <StatCard icon="users" label="Total Profiles" value={totalProfiles} color={colors.primary} />
+          <StatCard icon="play" label="Running" value={running} color={colors.success} />
+          <StatCard icon="pause" label="Idle" value={idle} color={colors.textMuted} />
+          <StatCard icon="percent" label="Success Rate" value={`${successRate}%`} color={colors.info} />
         </View>
-      </View>
 
-      <View style={styles.activitySection}>
-        <Text style={styles.sectionTitle}>Recent Activity</Text>
-        {recentSessions.length === 0 ? (
-          <View style={styles.emptyActivity}>
-            <Feather name="inbox" size={32} color={colors.textMuted} />
-            <Text style={styles.emptyText}>No recent activity</Text>
-            <Text style={styles.emptySubtext}>Start browsing to see activity here</Text>
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Quick Actions</Text>
           </View>
-        ) : (
-          recentSessions.map((session) => {
-            const profile = profiles.find(p => p.id === session.profileId);
-            return (
-              <View key={session.id} style={styles.activityItem}>
-                <View style={[styles.activityDot, { backgroundColor: profile?.color || colors.primary }]} />
-                <View style={styles.activityContent}>
-                  <Text style={styles.activityTitle} numberOfLines={1}>
-                    {session.title || session.url}
-                  </Text>
+          <View style={styles.actionsRow}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push("/profiles")}
+            >
+              <Feather name="plus" size={18} color={colors.primary} />
+              <Text style={styles.actionText}>New Profile</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push("/browser/multi")}
+            >
+              <Feather name="grid" size={18} color={colors.primary} />
+              <Text style={styles.actionText}>Multi Browser</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push("/sync")}
+            >
+              <Feather name="zap" size={18} color={colors.primary} />
+              <Text style={styles.actionText}>Run Script</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Recent Activity</Text>
+          {recentProfiles.length === 0 ? (
+            <Text style={styles.emptyText}>No profiles yet. Create one to get started!</Text>
+          ) : (
+            recentProfiles.map((profile) => (
+              <TouchableOpacity
+                key={profile.id}
+                style={styles.activityItem}
+                onPress={() => router.push(`/profile/${profile.id}`)}
+              >
+                <View style={[styles.statusDot, {
+                  backgroundColor: profile.status === "running" ? colors.success
+                    : profile.status === "loading" ? colors.warning
+                    : profile.status === "error" ? colors.error
+                    : colors.textMuted
+                }]} />
+                <View style={styles.activityInfo}>
+                  <Text style={styles.activityName}>{profile.name}</Text>
                   <Text style={styles.activityMeta}>
-                    {profile?.name || 'Unknown'} · {new Date(session.timestamp).toLocaleTimeString()}
+                    {profile.fingerprint.platform} - {new Date(profile.lastUsed).toLocaleDateString()}
                   </Text>
                 </View>
-              </View>
-            );
-          })
-        )}
-      </View>
-
-      {profiles.length > 0 && (
-        <View style={styles.profilesPreview}>
-          <Text style={styles.sectionTitle}>Active Profiles</Text>
-          {profiles.filter(p => p.status === 'running').length === 0 ? (
-            <Text style={styles.noRunning}>No profiles currently running</Text>
-          ) : (
-            profiles
-              .filter(p => p.status === 'running')
-              .slice(0, 5)
-              .map(profile => (
-                <TouchableOpacity
-                  key={profile.id}
-                  style={styles.profilePreviewItem}
-                  onPress={() => router.push(`/browser/${profile.id}`)}
-                >
-                  <View style={[styles.profileDot, { backgroundColor: profile.color }]} />
-                  <Text style={styles.profilePreviewName}>{profile.name}</Text>
-                  <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
-                </TouchableOpacity>
-              ))
+                <Feather name="chevron-right" size={16} color={colors.textMuted} />
+              </TouchableOpacity>
+            ))
           )}
         </View>
-      )}
-    </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+function StatCard({ icon, label, value, color }: {
+  icon: keyof typeof Feather.glyphMap;
+  label: string;
+  value: number | string;
+  color: string;
+}) {
+  return (
+    <View style={styles.statCard}>
+      <Feather name={icon} size={18} color={color} />
+      <Text style={styles.statValue}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
   );
 }
 
@@ -137,170 +117,116 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   content: {
-    padding: 16,
-    paddingBottom: 32,
+    padding: 20,
   },
-  greeting: {
-    fontSize: 24,
-    fontFamily: 'Inter_700Bold',
+  title: {
+    fontSize: 28,
+    fontFamily: "Inter_700Bold",
     color: colors.text,
-    marginBottom: 4,
   },
   subtitle: {
     fontSize: 14,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: "Inter_400Regular",
     color: colors.textSecondary,
-    marginBottom: 20,
+    marginTop: 4,
+    marginBottom: 24,
   },
   statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 12,
     marginBottom: 24,
   },
   statCard: {
+    flex: 1,
+    minWidth: "45%",
     backgroundColor: colors.surface,
     borderRadius: 14,
-    padding: 14,
-    width: '48%',
-    flexGrow: 1,
+    padding: 16,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
-  },
-  statIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 10,
+    alignItems: "flex-start",
+    gap: 8,
   },
   statValue: {
-    fontSize: 22,
-    fontFamily: 'Inter_700Bold',
+    fontSize: 24,
+    fontFamily: "Inter_700Bold",
     color: colors.text,
   },
   statLabel: {
     fontSize: 12,
-    fontFamily: 'Inter_400Regular',
+    fontFamily: "Inter_400Regular",
     color: colors.textSecondary,
-    marginTop: 2,
   },
-  quickActions: {
+  section: {
     marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
   },
   sectionTitle: {
     fontSize: 16,
-    fontFamily: 'Inter_600SemiBold',
+    fontFamily: "Inter_600SemiBold",
     color: colors.text,
     marginBottom: 12,
   },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 10,
+  actionsRow: {
+    flexDirection: "row",
+    gap: 12,
   },
   actionButton: {
     flex: 1,
     backgroundColor: colors.surface,
     borderRadius: 12,
     padding: 14,
-    alignItems: 'center',
-    gap: 8,
+    alignItems: "center",
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
+    gap: 6,
   },
   actionText: {
-    fontSize: 12,
-    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+    fontFamily: "Inter_500Medium",
     color: colors.text,
-  },
-  activitySection: {
-    marginBottom: 24,
-  },
-  emptyActivity: {
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    padding: 32,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  emptyText: {
-    fontSize: 15,
-    fontFamily: 'Inter_600SemiBold',
-    color: colors.textSecondary,
-    marginTop: 12,
-  },
-  emptySubtext: {
-    fontSize: 13,
-    fontFamily: 'Inter_400Regular',
-    color: colors.textMuted,
-    marginTop: 4,
   },
   activityItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: colors.surface,
     borderRadius: 12,
-    padding: 12,
+    padding: 14,
     marginBottom: 8,
     borderWidth: 1,
     borderColor: colors.surfaceBorder,
-  },
-  activityDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 12,
-  },
-  activityContent: {
-    flex: 1,
-  },
-  activityTitle: {
-    fontSize: 14,
-    fontFamily: 'Inter_500Medium',
-    color: colors.text,
-  },
-  activityMeta: {
-    fontSize: 12,
-    fontFamily: 'Inter_400Regular',
-    color: colors.textMuted,
-    marginTop: 2,
-  },
-  profilesPreview: {
-    marginBottom: 24,
-  },
-  noRunning: {
-    fontSize: 13,
-    fontFamily: 'Inter_400Regular',
-    color: colors.textMuted,
-    fontStyle: 'italic',
-  },
-  profilePreviewItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: colors.surfaceBorder,
-  },
-  profileDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginRight: 12,
-  },
-  profilePreviewName: {
-    flex: 1,
-    fontSize: 14,
-    fontFamily: 'Inter_500Medium',
-    color: colors.text,
   },
   statusDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
+    marginRight: 12,
+  },
+  activityInfo: {
+    flex: 1,
+  },
+  activityName: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    color: colors.text,
+  },
+  activityMeta: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  emptyText: {
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+    color: colors.textMuted,
+    textAlign: "center",
+    paddingVertical: 32,
   },
 });

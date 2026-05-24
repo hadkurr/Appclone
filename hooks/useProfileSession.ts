@@ -1,16 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
-import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import CookieManager, { Cookie, Cookies } from '@react-native-cookies/cookies';
-
-const STORAGE_KEY_PREFIX = '__bpm_storage_';
-const COOKIE_KEY_PREFIX = '__bpm_cookies_';
-const DEBOUNCE_MS = 250;
-
-interface NativeCookieEntry {
-  url: string;
-  cookies: Cookies;
-}
+import { useEffect, useState, useRef, useCallback } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface StorageData {
   localStorage: Record<string, string>;
@@ -19,224 +8,149 @@ interface StorageData {
 
 interface StorageMessage {
   __bpm: true;
-  type: 'storage' | 'cookie';
-  kind?: 'localStorage' | 'sessionStorage';
-  action?: 'setItem' | 'removeItem' | 'clear';
+  type: "storage";
+  kind: "localStorage" | "sessionStorage";
+  action: "setItem" | "removeItem" | "clear";
   key?: string;
   value?: string;
-  cookies?: Record<string, string>;
 }
 
 export function useProfileSession(profileId: string) {
   const [ready, setReady] = useState(false);
-  const [storageData, setStorageData] = useState<StorageData>({
-    localStorage: {},
-    sessionStorage: {},
-  });
+  const storageRef = useRef<StorageData>({ localStorage: {}, sessionStorage: {} });
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const storageRef = useRef<StorageData>(storageData);
-  const visitedUrlsRef = useRef<Set<string>>(new Set());
-  const nativeCookiesRef = useRef<NativeCookieEntry[]>([]);
 
-  const storageKey = `${STORAGE_KEY_PREFIX}${profileId}`;
-  const cookieKey = `${COOKIE_KEY_PREFIX}${profileId}`;
+  const storageKey = `__bpm_storage_${profileId}`;
 
   useEffect(() => {
-    storageRef.current = storageData;
-  }, [storageData]);
+    loadStorage();
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [profileId]);
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      const [raw, rawCookies] = await Promise.all([
-        AsyncStorage.getItem(storageKey),
-        AsyncStorage.getItem(cookieKey),
-      ]);
-      if (!mounted) return;
-
-      const data: StorageData = { localStorage: {}, sessionStorage: {} };
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw);
-          data.localStorage = parsed.localStorage || {};
-          data.sessionStorage = parsed.sessionStorage || {};
-        } catch {
-          // ignore
-        }
+  const loadStorage = async () => {
+    try {
+      const data = await AsyncStorage.getItem(storageKey);
+      if (data) {
+        storageRef.current = JSON.parse(data);
+      } else {
+        storageRef.current = { localStorage: {}, sessionStorage: {} };
       }
+    } catch (e) {
+      storageRef.current = { localStorage: {}, sessionStorage: {} };
+    }
+    setReady(true);
+  };
 
-      let savedCookies: NativeCookieEntry[] = [];
-      if (rawCookies) {
-        try {
-          savedCookies = JSON.parse(rawCookies);
-        } catch {
-          // ignore
-        }
-      }
-      nativeCookiesRef.current = savedCookies;
-
-      if (Platform.OS !== 'web') {
-        try {
-          await CookieManager.clearAll();
-          for (const entry of savedCookies) {
-            for (const name of Object.keys(entry.cookies)) {
-              const cookie = entry.cookies[name];
-              await CookieManager.set(entry.url, {
-                name: cookie.name || name,
-                value: cookie.value,
-                path: cookie.path,
-                domain: cookie.domain,
-                version: cookie.version,
-                expires: cookie.expires,
-                secure: cookie.secure,
-                httpOnly: cookie.httpOnly,
-              });
-            }
-          }
-        } catch {
-          // native cookie manager not available
-        }
-      }
-
-      setStorageData(data);
-      storageRef.current = data;
-      setReady(true);
-    })();
-    return () => { mounted = false; };
-  }, [storageKey, cookieKey]);
-
-  const persist = useCallback((data: StorageData) => {
+  const persist = useCallback(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(() => {
-      AsyncStorage.setItem(storageKey, JSON.stringify(data)).catch(() => {});
-    }, DEBOUNCE_MS);
+    debounceTimer.current = setTimeout(async () => {
+      try {
+        await AsyncStorage.setItem(storageKey, JSON.stringify(storageRef.current));
+      } catch (e) {
+        console.error("Failed to persist session:", e);
+      }
+    }, 250);
   }, [storageKey]);
 
-  const saveNativeCookiesForUrl = useCallback(async (url: string) => {
-    if (Platform.OS === 'web') return;
-    try {
-      const cookies = await CookieManager.get(url);
-      if (Object.keys(cookies).length === 0) return;
-
-      const entries = nativeCookiesRef.current.filter(e => e.url !== url);
-      entries.push({ url, cookies });
-      nativeCookiesRef.current = entries;
-
-      await AsyncStorage.setItem(cookieKey, JSON.stringify(entries));
-    } catch {
-      // ignore
-    }
-  }, [cookieKey]);
-
-  const saveAllNativeCookies = useCallback(async () => {
-    if (Platform.OS === 'web') return;
-    const urls = Array.from(visitedUrlsRef.current);
-    for (const url of urls) {
-      await saveNativeCookiesForUrl(url);
-    }
-  }, [saveNativeCookiesForUrl]);
-
-  const trackUrl = useCallback((url: string) => {
-    try {
-      const origin = new URL(url).origin;
-      visitedUrlsRef.current.add(origin);
-    } catch {
-      // invalid URL
-    }
-  }, []);
-
-  const applyMessage = useCallback((msg: StorageMessage) => {
-    if (!msg.__bpm) return;
-
-    if (msg.type === 'cookie') return;
-
-    if (msg.type !== 'storage' || !msg.kind || !msg.action) return;
-    const current = { ...storageRef.current };
-    const store = { ...current[msg.kind] };
-
-    switch (msg.action) {
-      case 'setItem':
-        if (msg.key !== undefined && msg.value !== undefined) {
-          store[msg.key] = msg.value;
+  const applyMessage = useCallback((data: StorageMessage) => {
+    if (!data.__bpm || data.type !== "storage") return;
+    const store = storageRef.current[data.kind];
+    switch (data.action) {
+      case "setItem":
+        if (data.key != null && data.value != null) {
+          store[data.key] = data.value;
         }
         break;
-      case 'removeItem':
-        if (msg.key !== undefined) {
-          delete store[msg.key];
+      case "removeItem":
+        if (data.key != null) {
+          delete store[data.key];
         }
         break;
-      case 'clear':
-        Object.keys(store).forEach(k => delete store[k]);
+      case "clear":
+        if (data.kind === "localStorage") {
+          storageRef.current.localStorage = {};
+        } else {
+          storageRef.current.sessionStorage = {};
+        }
         break;
     }
-
-    current[msg.kind] = store;
-    setStorageData(current);
-    storageRef.current = current;
-    persist(current);
+    persist();
   }, [persist]);
 
   const buildInjectJS = useCallback((): string => {
-    const data = storageRef.current;
-    const lsEntries = JSON.stringify(data.localStorage);
-    const ssEntries = JSON.stringify(data.sessionStorage);
+    const ls = JSON.stringify(storageRef.current.localStorage);
+    const ss = JSON.stringify(storageRef.current.sessionStorage);
 
     return `
-(function() {
-  try {
-    // --- Clear and hydrate localStorage ---
-    var lsData = ${lsEntries};
-    try { localStorage.clear(); } catch(e) {}
-    Object.keys(lsData).forEach(function(k) {
-      try { localStorage.setItem(k, lsData[k]); } catch(e) {}
-    });
+      (function() {
+        try {
+          // Hydrate localStorage
+          var lsData = ${ls};
+          for (var k in lsData) {
+            try { localStorage.setItem(k, lsData[k]); } catch(e) {}
+          }
+          // Hydrate sessionStorage
+          var ssData = ${ss};
+          for (var k in ssData) {
+            try { sessionStorage.setItem(k, ssData[k]); } catch(e) {}
+          }
 
-    // --- Clear and hydrate sessionStorage ---
-    var ssData = ${ssEntries};
-    try { sessionStorage.clear(); } catch(e) {}
-    Object.keys(ssData).forEach(function(k) {
-      try { sessionStorage.setItem(k, ssData[k]); } catch(e) {}
-    });
+          // Hook localStorage
+          var origLS = {
+            setItem: localStorage.setItem.bind(localStorage),
+            removeItem: localStorage.removeItem.bind(localStorage),
+            clear: localStorage.clear.bind(localStorage)
+          };
+          localStorage.setItem = function(key, value) {
+            origLS.setItem(key, value);
+            window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+              __bpm: true, type: 'storage', kind: 'localStorage', action: 'setItem', key: key, value: value
+            }));
+          };
+          localStorage.removeItem = function(key) {
+            origLS.removeItem(key);
+            window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+              __bpm: true, type: 'storage', kind: 'localStorage', action: 'removeItem', key: key
+            }));
+          };
+          localStorage.clear = function() {
+            origLS.clear();
+            window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+              __bpm: true, type: 'storage', kind: 'localStorage', action: 'clear'
+            }));
+          };
 
-    // --- Hook storage APIs ---
-    function hookStorage(storageObj, kind) {
-      var origSetItem = storageObj.setItem.bind(storageObj);
-      var origRemoveItem = storageObj.removeItem.bind(storageObj);
-      var origClear = storageObj.clear.bind(storageObj);
-
-      storageObj.setItem = function(key, value) {
-        origSetItem(key, value);
-        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
-          __bpm: true, type: 'storage', kind: kind, action: 'setItem', key: key, value: value
-        }));
-      };
-      storageObj.removeItem = function(key) {
-        origRemoveItem(key);
-        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
-          __bpm: true, type: 'storage', kind: kind, action: 'removeItem', key: key
-        }));
-      };
-      storageObj.clear = function() {
-        origClear();
-        window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
-          __bpm: true, type: 'storage', kind: kind, action: 'clear'
-        }));
-      };
-    }
-    hookStorage(localStorage, 'localStorage');
-    hookStorage(sessionStorage, 'sessionStorage');
-  } catch(e) {}
-})();
-`;
+          // Hook sessionStorage
+          var origSS = {
+            setItem: sessionStorage.setItem.bind(sessionStorage),
+            removeItem: sessionStorage.removeItem.bind(sessionStorage),
+            clear: sessionStorage.clear.bind(sessionStorage)
+          };
+          sessionStorage.setItem = function(key, value) {
+            origSS.setItem(key, value);
+            window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+              __bpm: true, type: 'storage', kind: 'sessionStorage', action: 'setItem', key: key, value: value
+            }));
+          };
+          sessionStorage.removeItem = function(key) {
+            origSS.removeItem(key);
+            window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+              __bpm: true, type: 'storage', kind: 'sessionStorage', action: 'removeItem', key: key
+            }));
+          };
+          sessionStorage.clear = function() {
+            origSS.clear();
+            window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
+              __bpm: true, type: 'storage', kind: 'sessionStorage', action: 'clear'
+            }));
+          };
+        } catch(e) {}
+      })();
+      true;
+    `;
   }, []);
 
-  return {
-    ready,
-    storageData,
-    applyMessage,
-    buildInjectJS,
-    trackUrl,
-    saveNativeCookiesForUrl,
-    saveAllNativeCookies,
-  };
+  return { ready, applyMessage, buildInjectJS };
 }

@@ -13,7 +13,7 @@ const USER_AGENTS = [
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/106.0.0.0',
 ];
 
-const PLATFORMS = ['Win32', 'MacIntel', 'Linux x86_64'];
+const PLATFORMS: Fingerprint['platform'][] = ['Win32', 'MacIntel', 'Linux x86_64'];
 const LANGUAGES = ['en-US', 'en-GB', 'fr-FR', 'de-DE', 'es-ES', 'ja-JP', 'zh-CN', 'ko-KR', 'pt-BR', 'ru-RU'];
 const SCREEN_SIZES = [
   { width: 1920, height: 1080 },

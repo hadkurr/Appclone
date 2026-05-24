@@ -1,266 +1,241 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, TextInput,
-  ActivityIndicator, SafeAreaView, Platform,
-} from 'react-native';
-import { Feather } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useProfiles } from '../../context/ProfileContext';
-import { useProfileSession } from '../../hooks/useProfileSession';
-import { buildFingerprintJS } from '../../hooks/useFingerprint';
-import CompatWebView, { CompatWebViewRef } from '../../components/CompatWebView';
-import colors from '../../hooks/useColors';
+  View, Text, StyleSheet, TextInput, TouchableOpacity,
+  ActivityIndicator,
+} from "react-native";
+import { Feather } from "@expo/vector-icons";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { WebViewMessageEvent, WebViewNavigation } from "react-native-webview";
+import { CompatWebView, CompatWebViewRef } from "../../components/CompatWebView";
+import { useProfiles } from "../../context/ProfileContext";
+import { useProfileSession } from "../../hooks/useProfileSession";
+import { colors } from "../../hooks/useColors";
+
+function buildFingerprintJS(fp: {
+  platform: string;
+  language: string;
+  screenWidth: number;
+  screenHeight: number;
+  colorDepth: number;
+  webglVendor: string;
+  webglRenderer: string;
+  canvasNoise: boolean;
+}): string {
+  return `
+    (function() {
+      try {
+        Object.defineProperty(navigator, 'platform', { get: function() { return '${fp.platform}'; } });
+        Object.defineProperty(navigator, 'language', { get: function() { return '${fp.language}'; } });
+        Object.defineProperty(navigator, 'languages', { get: function() { return ['${fp.language}']; } });
+        Object.defineProperty(screen, 'width', { get: function() { return ${fp.screenWidth}; } });
+        Object.defineProperty(screen, 'height', { get: function() { return ${fp.screenHeight}; } });
+        Object.defineProperty(screen, 'colorDepth', { get: function() { return ${fp.colorDepth}; } });
+
+        var getParam = WebGLRenderingContext.prototype.getParameter;
+        WebGLRenderingContext.prototype.getParameter = function(param) {
+          if (param === 37445) return '${fp.webglVendor}';
+          if (param === 37446) return '${fp.webglRenderer}';
+          return getParam.call(this, param);
+        };
+
+        ${fp.canvasNoise ? `
+        var origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+        HTMLCanvasElement.prototype.toDataURL = function(type) {
+          var ctx = this.getContext('2d');
+          if (ctx) {
+            var imgData = ctx.getImageData(0, 0, Math.min(this.width, 2), Math.min(this.height, 2));
+            imgData.data[0] = imgData.data[0] ^ 1;
+            ctx.putImageData(imgData, 0, 0);
+          }
+          return origToDataURL.apply(this, arguments);
+        };
+        ` : ""}
+      } catch(e) {}
+    })();
+    true;
+  `;
+}
 
 export default function BrowserScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { getProfile, setProfileStatus } = useProfiles();
   const router = useRouter();
-  const { profiles, setProfileStatus, addSession } = useProfiles();
+  const profile = getProfile(id);
+  const session = useProfileSession(id);
+  const webRef = useRef<CompatWebViewRef>(null);
 
-  const profile = profiles.find(p => p.id === id);
-  const session = useProfileSession(id || '');
-  const webViewRef = useRef<CompatWebViewRef>(null);
-
-  const [urlInput, setUrlInput] = useState(profile?.homepageUrl || 'https://www.google.com');
-  const [currentUrl, setCurrentUrl] = useState(profile?.homepageUrl || 'https://www.google.com');
-  const [isLoading, setIsLoading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [url, setUrl] = useState(profile?.homepage || "https://www.google.com");
+  const [urlInput, setUrlInput] = useState(url);
+  const [loading, setLoading] = useState(false);
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
-  const [pageTitle, setPageTitle] = useState('');
-  const [isSecure, setIsSecure] = useState(false);
+  const [progress, setProgress] = useState(0);
 
-  useEffect(() => {
-    if (profile && id) {
-      setProfileStatus(id, 'running');
-      return () => {
-        setProfileStatus(id, 'idle');
-        session.saveAllNativeCookies();
-      };
+  if (!profile) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Text style={{ color: colors.error, textAlign: "center", marginTop: 100 }}>
+          Profile not found
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  const injectedJS = session.buildInjectJS() + buildFingerprintJS(profile.fingerprint);
+
+  const handleNavigate = () => {
+    let target = urlInput.trim();
+    if (!target.startsWith("http://") && !target.startsWith("https://")) {
+      target = "https://" + target;
     }
-  }, [id, profile]);
+    setUrl(target);
+    setUrlInput(target);
+  };
 
-  const navigateToUrl = useCallback((url: string) => {
-    let finalUrl = url.trim();
-    if (!finalUrl) return;
-    if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-      if (finalUrl.includes('.') && !finalUrl.includes(' ')) {
-        finalUrl = 'https://' + finalUrl;
-      } else {
-        finalUrl = `https://www.google.com/search?q=${encodeURIComponent(finalUrl)}`;
-      }
-    }
-    setCurrentUrl(finalUrl);
-    setUrlInput(finalUrl);
-  }, []);
-
-  const handleSubmitUrl = useCallback(() => {
-    navigateToUrl(urlInput);
-  }, [urlInput, navigateToUrl]);
-
-  const handleNavigationStateChange = useCallback((navState: { url: string; title?: string; canGoBack?: boolean; canGoForward?: boolean }) => {
+  const handleNavStateChange = (navState: WebViewNavigation) => {
     setUrlInput(navState.url);
-    setCanGoBack(navState.canGoBack || false);
-    setCanGoForward(navState.canGoForward || false);
-    setIsSecure(navState.url.startsWith('https://'));
-    if (navState.title) {
-      setPageTitle(navState.title);
-    }
-    session.trackUrl(navState.url);
-    session.saveNativeCookiesForUrl(navState.url);
-    if (id && navState.title && navState.url !== currentUrl) {
-      addSession(id, navState.url, navState.title || navState.url);
-    }
-  }, [id, currentUrl, addSession, session]);
+    setCanGoBack(navState.canGoBack);
+    setCanGoForward(navState.canGoForward);
+  };
 
-  const handleMessage = useCallback((event: { nativeEvent: { data: string } }) => {
+  const handleMessage = useCallback((event: WebViewMessageEvent) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.__bpm) {
         session.applyMessage(data);
       }
-    } catch {
+    } catch (e) {
       // ignore non-JSON messages
     }
   }, [session]);
 
-  if (!profile) {
-    return (
-      <SafeAreaView style={styles.notFound}>
-        <Feather name="alert-circle" size={48} color={colors.textMuted} />
-        <Text style={styles.notFoundText}>Profile not found</Text>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.goBackText}>Go Back</Text>
-        </TouchableOpacity>
-      </SafeAreaView>
-    );
-  }
-
   if (!session.ready) {
     return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading session...</Text>
+      <SafeAreaView style={styles.container}>
+        <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 100 }} />
       </SafeAreaView>
     );
   }
-
-  const fingerprintJS = buildFingerprintJS(profile.fingerprint);
-  const sessionJS = session.buildInjectJS();
-  const injectedJS = sessionJS + fingerprintJS;
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.toolbar}>
-        <TouchableOpacity style={styles.toolbarButton} onPress={() => router.back()}>
-          <Feather name="arrow-left" size={18} color={colors.text} />
+        <TouchableOpacity onPress={() => router.back()} style={styles.toolBtn}>
+          <Feather name="x" size={18} color={colors.text} />
         </TouchableOpacity>
-
-        <View style={styles.urlBarContainer}>
-          {isSecure && (
-            <Feather name="lock" size={12} color={colors.success} style={styles.lockIcon} />
-          )}
+        <TouchableOpacity
+          onPress={() => webRef.current?.goBack()}
+          style={styles.toolBtn}
+          disabled={!canGoBack}
+        >
+          <Feather name="chevron-left" size={18} color={canGoBack ? colors.text : colors.textMuted} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => webRef.current?.goForward()}
+          style={styles.toolBtn}
+          disabled={!canGoForward}
+        >
+          <Feather name="chevron-right" size={18} color={canGoForward ? colors.text : colors.textMuted} />
+        </TouchableOpacity>
+        <View style={styles.urlBar}>
+          <Feather name="lock" size={12} color={colors.success} />
           <TextInput
             style={styles.urlInput}
             value={urlInput}
             onChangeText={setUrlInput}
-            onSubmitEditing={handleSubmitUrl}
-            placeholder="Enter URL or search..."
-            placeholderTextColor={colors.textMuted}
+            onSubmitEditing={handleNavigate}
             autoCapitalize="none"
             autoCorrect={false}
-            keyboardType="url"
             returnKeyType="go"
             selectTextOnFocus
           />
-          {isLoading && (
-            <ActivityIndicator size="small" color={colors.primary} style={styles.urlSpinner} />
-          )}
         </View>
-
         <TouchableOpacity
-          style={styles.toolbarButton}
-          onPress={() => webViewRef.current?.reload()}
+          onPress={() => webRef.current?.reload()}
+          style={styles.toolBtn}
         >
-          <Feather name="refresh-cw" size={16} color={colors.text} />
+          <Feather name={loading ? "x" : "refresh-cw"} size={16} color={colors.text} />
         </TouchableOpacity>
       </View>
 
-      {isLoading && (
-        <View style={styles.progressBar}>
-          <View style={[styles.progressFill, { width: `${progress * 100}%` }]} />
-        </View>
+      {loading && (
+        <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
       )}
 
-      <View style={styles.profileBar}>
-        <View style={[styles.profileDot, { backgroundColor: profile.color }]} />
-        <Text style={styles.profileName} numberOfLines={1}>{profile.name}</Text>
-        <Text style={styles.profilePlatform}>{profile.fingerprint.platform}</Text>
-        <View style={[styles.statusDot, { backgroundColor: colors.success }]} />
+      <View style={styles.fingerprintBanner}>
+        <Text style={styles.fpText}>
+          {profile.name} | {profile.fingerprint.platform} | {profile.fingerprint.language}
+        </Text>
       </View>
 
-      <View style={styles.webviewContainer}>
-        <CompatWebView
-          ref={webViewRef}
-          uri={currentUrl}
-          userAgent={profile.fingerprint.userAgent}
-          injectedJavaScriptBeforeContentLoaded={injectedJS}
-          onLoadStart={() => setIsLoading(true)}
-          onLoadEnd={() => setIsLoading(false)}
-          onError={(err) => {
-            setIsLoading(false);
-            if (id) setProfileStatus(id, 'error');
-          }}
-          onProgress={setProgress}
-          onNavigationStateChange={handleNavigationStateChange}
-          onMessage={handleMessage}
-        />
-      </View>
-
-      <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={[styles.navButton, !canGoBack && styles.navButtonDisabled]}
-          onPress={() => webViewRef.current?.goBack()}
-          disabled={!canGoBack}
-        >
-          <Feather name="chevron-left" size={20} color={canGoBack ? colors.text : colors.textMuted} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.navButton, !canGoForward && styles.navButtonDisabled]}
-          onPress={() => webViewRef.current?.goForward()}
-          disabled={!canGoForward}
-        >
-          <Feather name="chevron-right" size={20} color={canGoForward ? colors.text : colors.textMuted} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.navButton}
-          onPress={() => navigateToUrl(profile.homepageUrl)}
-        >
-          <Feather name="home" size={18} color={colors.text} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.navButton}
-          onPress={() => router.push(`/profile/${id}`)}
-        >
-          <Feather name="sliders" size={18} color={colors.text} />
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.navButton}
-          onPress={() => router.push(`/session/${id}`)}
-        >
-          <Feather name="clock" size={18} color={colors.text} />
-        </TouchableOpacity>
-      </View>
+      <CompatWebView
+        ref={webRef}
+        uri={url}
+        userAgent={profile.fingerprint.userAgent}
+        injectedJavaScriptBeforeContentLoaded={injectedJS}
+        onLoadStart={() => { setLoading(true); setProfileStatus(id, "loading"); }}
+        onLoadEnd={() => { setLoading(false); setProfileStatus(id, "running"); }}
+        onError={() => setProfileStatus(id, "error")}
+        onProgress={setProgress}
+        onNavigationStateChange={handleNavStateChange}
+        onMessage={handleMessage}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  notFound: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background },
-  notFoundText: { fontSize: 16, fontFamily: 'Inter_500Medium', color: colors.textSecondary, marginTop: 12 },
-  goBackText: { fontSize: 14, fontFamily: 'Inter_500Medium', color: colors.primary, marginTop: 16 },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: colors.background },
-  loadingText: { fontSize: 14, fontFamily: 'Inter_400Regular', color: colors.textSecondary, marginTop: 12 },
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
   toolbar: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6, gap: 6,
-    backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.surfaceBorder,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceBorder,
+    gap: 4,
   },
-  toolbarButton: {
-    width: 36, height: 36, borderRadius: 8, justifyContent: 'center', alignItems: 'center',
-    backgroundColor: colors.surfaceLight,
+  toolBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  urlBarContainer: {
-    flex: 1, flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.surfaceLight, borderRadius: 8, paddingHorizontal: 10, height: 36,
-    borderWidth: 1, borderColor: colors.surfaceBorder,
+  urlBar: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    height: 34,
+    gap: 6,
   },
-  lockIcon: { marginRight: 6 },
   urlInput: {
-    flex: 1, color: colors.text, fontFamily: 'Inter_400Regular', fontSize: 13, paddingVertical: 0,
+    flex: 1,
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: colors.text,
   },
-  urlSpinner: { marginLeft: 6 },
   progressBar: {
-    height: 2, backgroundColor: colors.surfaceBorder,
+    height: 2,
+    backgroundColor: colors.primary,
   },
-  progressFill: {
-    height: 2, backgroundColor: colors.primary,
+  fingerprintBanner: {
+    backgroundColor: colors.surfaceLight,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
   },
-  profileBar: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6,
-    backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.surfaceBorder, gap: 8,
+  fpText: {
+    fontSize: 10,
+    fontFamily: "Inter_500Medium",
+    color: colors.textMuted,
+    textAlign: "center",
   },
-  profileDot: { width: 8, height: 8, borderRadius: 4 },
-  profileName: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: colors.text, flex: 1 },
-  profilePlatform: { fontSize: 11, fontFamily: 'Inter_400Regular', color: colors.textMuted },
-  statusDot: { width: 6, height: 6, borderRadius: 3 },
-  webviewContainer: { flex: 1 },
-  bottomBar: {
-    flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center',
-    backgroundColor: colors.surface, borderTopWidth: 1, borderTopColor: colors.surfaceBorder,
-    paddingVertical: 8, paddingHorizontal: 16,
-  },
-  navButton: {
-    width: 44, height: 44, borderRadius: 10, justifyContent: 'center', alignItems: 'center',
-  },
-  navButtonDisabled: { opacity: 0.4 },
 });

@@ -1,6 +1,6 @@
 export interface Fingerprint {
   userAgent: string;
-  platform: string;
+  platform: "Win32" | "MacIntel" | "Linux x86_64";
   language: string;
   screenWidth: number;
   screenHeight: number;
@@ -10,21 +10,24 @@ export interface Fingerprint {
   canvasNoise: boolean;
 }
 
-export type ProfileStatus = 'idle' | 'running' | 'loading' | 'error';
+export type ProfileStatus = "idle" | "running" | "loading" | "error";
 
 export interface BrowserProfile {
   id: string;
   name: string;
   fingerprint: Fingerprint;
-  proxy: string;
-  homepageUrl: string;
+  proxy?: {
+    host: string;
+    port: number;
+    username?: string;
+    password?: string;
+    type: "http" | "socks5";
+  };
+  homepage: string;
   notes: string;
   status: ProfileStatus;
+  lastUsed: number;
   createdAt: number;
-  updatedAt: number;
-  lastUsedAt: number | null;
-  sessionCount: number;
-  color: string;
 }
 
 export interface SessionEntry {

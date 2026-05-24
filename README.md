@@ -1,25 +1,26 @@
 # Browser Profile Manager
 
-A mobile app built with Expo (React Native) that manages multiple browser profiles — each profile is an independent browser with its own fingerprint, user-agent, proxy, and session persistence.
+A mobile app built with Expo (React Native) for managing multiple independent browser profiles. Each profile has its own fingerprint, user-agent, proxy settings, and session storage — similar to anti-detect browser tools.
 
 ## Features
 
-- **Profile Management**: Create, edit, delete, and duplicate browser profiles (50+ supported)
-- **Fingerprint Spoofing**: Each profile gets a unique fingerprint (platform, language, screen, WebGL, canvas noise)
-- **Multi Browser Grid**: Run multiple profiles simultaneously in 1x/2x/3x column layouts
-- **Master Mirror Mode**: Select a master profile — all actions (scroll, click, input, navigation) are replayed on other profiles in real-time
-- **Script Runner**: Execute JavaScript across selected profiles simultaneously
-- **Session Persistence**: Each profile stores localStorage/sessionStorage independently via AsyncStorage
-- **Dashboard**: Statistics, activity feed, and quick actions
+- **Multi-Profile Management**: Create, edit, delete 50+ browser profiles
+- **Fingerprint Spoofing**: Each profile gets unique platform, language, screen, WebGL, canvas noise
+- **Session Isolation**: localStorage/sessionStorage persisted per-profile via AsyncStorage
+- **Multi Browser Grid**: Run multiple profiles simultaneously in 1x/2x/3x column grid
+- **Master Mirror Mode**: Actions on master profile replicated to all others in real-time
+- **Script Runner**: Execute custom JavaScript across selected profiles simultaneously
+- **Dark Cyber Theme**: Indigo-based dark UI with Inter font family
 
 ## Tech Stack
 
-- Expo SDK 56+ with New Architecture
+- Expo SDK 56 (compatible with Expo Go)
 - expo-router (file-based routing + tabs)
-- react-native-webview (mobile) / iframe fallback (web)
+- react-native-webview
 - @react-native-async-storage/async-storage
 - TypeScript strict mode
-- Dark cyber indigo theme (#6366f1 primary, #0a0a14 background)
+- @expo-google-fonts/inter
+- @expo/vector-icons (Feather)
 
 ## Getting Started
 
@@ -28,37 +29,36 @@ npm install
 npx expo start
 ```
 
-Scan the QR code with **Expo Go** on your device.
+Scan the QR code with Expo Go on your device.
 
 ## Project Structure
 
 ```
 app/
-  _layout.tsx              — Root layout (fonts, providers)
+  _layout.tsx           - Root layout (fonts, providers)
   (tabs)/
-    _layout.tsx            — Tab bar
-    index.tsx              — Dashboard
-    profiles.tsx           — Profile list + creation
-    sync.tsx               — Mirror & Script Runner config
-    settings.tsx           — App settings
-  profile/[id].tsx         — Profile detail/edit
-  browser/[id].tsx         — Single profile browser
-  browser/multi.tsx        — Multi-browser grid + mirror
-  session/[id].tsx         — Session history
+    _layout.tsx         - Tab navigation
+    index.tsx           - Dashboard
+    profiles.tsx        - Profile list + create
+    sync.tsx            - Script runner + mirror config
+    settings.tsx        - App settings
+  profile/[id].tsx      - Profile detail/edit
+  browser/[id].tsx      - Single profile browser
+  browser/multi.tsx     - Multi-browser grid + mirror
+  session/[id].tsx      - Session history
 components/
-  CompatWebView.tsx        — WebView (mobile) / iframe (web)
-  ErrorBoundary.tsx
+  CompatWebView.tsx     - WebView/iframe wrapper
+  ErrorBoundary.tsx     - Error boundary
 context/
-  ProfileContext.tsx        — AsyncStorage CRUD for profiles
+  ProfileContext.tsx    - Profiles CRUD + state
 hooks/
-  useColors.ts             — Theme colors
-  useFingerprint.ts        — Fingerprint generation + injection JS
-  useProfileSession.ts     — Storage bridge per profile
+  useColors.ts          - Theme colors
+  useProfileSession.ts  - Session bridge (JS↔AsyncStorage)
 types/
-  profile.ts               — TypeScript interfaces
+  profile.ts            - TypeScript types
 ```
 
 ## Known Limitations
 
-- HTTP-only cookies use the OS shared cookie jar in Expo Go — full isolation requires a custom dev client
-- Mirror mode uses CSS selector matching — may not work perfectly on pages with dynamic class names (Tailwind JIT, CSS modules)
+- HTTP-only cookies use the OS shared cookie jar in Expo Go (no full isolation without custom dev client)
+- Mirror mode uses CSS selectors that may not work with dynamic class names (Tailwind JIT, CSS Modules)
