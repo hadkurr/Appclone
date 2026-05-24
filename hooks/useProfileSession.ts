@@ -1,14 +1,20 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import CookieManager, { Cookie, Cookies } from '@react-native-cookies/cookies';
 
 const STORAGE_KEY_PREFIX = '__bpm_storage_';
 const COOKIE_KEY_PREFIX = '__bpm_cookies_';
 const DEBOUNCE_MS = 250;
 
+interface NativeCookieEntry {
+  url: string;
+  cookies: Cookies;
+}
+
 interface StorageData {
   localStorage: Record<string, string>;
   sessionStorage: Record<string, string>;
-  cookies: Record<string, string>;
 }
 
 interface StorageMessage {
@@ -26,11 +32,11 @@ export function useProfileSession(profileId: string) {
   const [storageData, setStorageData] = useState<StorageData>({
     localStorage: {},
     sessionStorage: {},
-    cookies: {},
   });
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cookieDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const storageRef = useRef<StorageData>(storageData);
+  const visitedUrlsRef = useRef<Set<string>>(new Set());
+  const nativeCookiesRef = useRef<NativeCookieEntry[]>([]);
 
   const storageKey = `${STORAGE_KEY_PREFIX}${profileId}`;
   const cookieKey = `${COOKIE_KEY_PREFIX}${profileId}`;
@@ -41,37 +47,61 @@ export function useProfileSession(profileId: string) {
 
   useEffect(() => {
     let mounted = true;
-    Promise.all([
-      AsyncStorage.getItem(storageKey),
-      AsyncStorage.getItem(cookieKey),
-    ]).then(([raw, rawCookies]) => {
+    (async () => {
+      const [raw, rawCookies] = await Promise.all([
+        AsyncStorage.getItem(storageKey),
+        AsyncStorage.getItem(cookieKey),
+      ]);
       if (!mounted) return;
-      const data: StorageData = {
-        localStorage: {},
-        sessionStorage: {},
-        cookies: {},
-      };
+
+      const data: StorageData = { localStorage: {}, sessionStorage: {} };
       if (raw) {
         try {
           const parsed = JSON.parse(raw);
           data.localStorage = parsed.localStorage || {};
           data.sessionStorage = parsed.sessionStorage || {};
-          data.cookies = parsed.cookies || {};
-        } catch {
-          // ignore parse errors
-        }
-      }
-      if (rawCookies) {
-        try {
-          data.cookies = JSON.parse(rawCookies);
         } catch {
           // ignore
         }
       }
+
+      let savedCookies: NativeCookieEntry[] = [];
+      if (rawCookies) {
+        try {
+          savedCookies = JSON.parse(rawCookies);
+        } catch {
+          // ignore
+        }
+      }
+      nativeCookiesRef.current = savedCookies;
+
+      if (Platform.OS !== 'web') {
+        try {
+          await CookieManager.clearAll();
+          for (const entry of savedCookies) {
+            for (const name of Object.keys(entry.cookies)) {
+              const cookie = entry.cookies[name];
+              await CookieManager.set(entry.url, {
+                name: cookie.name || name,
+                value: cookie.value,
+                path: cookie.path,
+                domain: cookie.domain,
+                version: cookie.version,
+                expires: cookie.expires,
+                secure: cookie.secure,
+                httpOnly: cookie.httpOnly,
+              });
+            }
+          }
+        } catch {
+          // native cookie manager not available
+        }
+      }
+
       setStorageData(data);
       storageRef.current = data;
       setReady(true);
-    });
+    })();
     return () => { mounted = false; };
   }, [storageKey, cookieKey]);
 
@@ -82,24 +112,43 @@ export function useProfileSession(profileId: string) {
     }, DEBOUNCE_MS);
   }, [storageKey]);
 
-  const persistCookies = useCallback((cookies: Record<string, string>) => {
-    if (cookieDebounceTimer.current) clearTimeout(cookieDebounceTimer.current);
-    cookieDebounceTimer.current = setTimeout(() => {
-      AsyncStorage.setItem(cookieKey, JSON.stringify(cookies)).catch(() => {});
-    }, DEBOUNCE_MS);
+  const saveNativeCookiesForUrl = useCallback(async (url: string) => {
+    if (Platform.OS === 'web') return;
+    try {
+      const cookies = await CookieManager.get(url);
+      if (Object.keys(cookies).length === 0) return;
+
+      const entries = nativeCookiesRef.current.filter(e => e.url !== url);
+      entries.push({ url, cookies });
+      nativeCookiesRef.current = entries;
+
+      await AsyncStorage.setItem(cookieKey, JSON.stringify(entries));
+    } catch {
+      // ignore
+    }
   }, [cookieKey]);
+
+  const saveAllNativeCookies = useCallback(async () => {
+    if (Platform.OS === 'web') return;
+    const urls = Array.from(visitedUrlsRef.current);
+    for (const url of urls) {
+      await saveNativeCookiesForUrl(url);
+    }
+  }, [saveNativeCookiesForUrl]);
+
+  const trackUrl = useCallback((url: string) => {
+    try {
+      const origin = new URL(url).origin;
+      visitedUrlsRef.current.add(origin);
+    } catch {
+      // invalid URL
+    }
+  }, []);
 
   const applyMessage = useCallback((msg: StorageMessage) => {
     if (!msg.__bpm) return;
 
-    if (msg.type === 'cookie' && msg.cookies) {
-      const current = { ...storageRef.current };
-      current.cookies = { ...current.cookies, ...msg.cookies };
-      setStorageData(current);
-      storageRef.current = current;
-      persistCookies(current.cookies);
-      return;
-    }
+    if (msg.type === 'cookie') return;
 
     if (msg.type !== 'storage' || !msg.kind || !msg.action) return;
     const current = { ...storageRef.current };
@@ -125,101 +174,16 @@ export function useProfileSession(profileId: string) {
     setStorageData(current);
     storageRef.current = current;
     persist(current);
-  }, [persist, persistCookies]);
+  }, [persist]);
 
   const buildInjectJS = useCallback((): string => {
     const data = storageRef.current;
     const lsEntries = JSON.stringify(data.localStorage);
     const ssEntries = JSON.stringify(data.sessionStorage);
-    const cookieEntries = JSON.stringify(data.cookies || {});
 
     return `
 (function() {
   try {
-    // --- Clear existing cookies from other profiles ---
-    var existingCookies = document.cookie.split(';');
-    for (var i = 0; i < existingCookies.length; i++) {
-      var cookie = existingCookies[i].trim();
-      if (!cookie) continue;
-      var eqPos = cookie.indexOf('=');
-      var name = eqPos > -1 ? cookie.substring(0, eqPos).trim() : cookie.trim();
-      if (name) {
-        document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/';
-        document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=' + window.location.hostname;
-        document.cookie = name + '=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=.' + window.location.hostname;
-      }
-    }
-
-    // --- Restore this profile's cookies ---
-    var profileCookies = ${cookieEntries};
-    Object.keys(profileCookies).forEach(function(name) {
-      try {
-        document.cookie = name + '=' + profileCookies[name] + ';path=/;max-age=31536000';
-      } catch(e) {}
-    });
-
-    // --- Hook document.cookie to capture changes ---
-    if (!window.__bpmCookieHooked) {
-      window.__bpmCookieHooked = true;
-      var cookieDesc = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie')
-        || Object.getOwnPropertyDescriptor(HTMLDocument.prototype, 'cookie');
-      if (cookieDesc && cookieDesc.set) {
-        var origSet = cookieDesc.set;
-        var origGet = cookieDesc.get;
-        var debounceTimer;
-        Object.defineProperty(document, 'cookie', {
-          get: function() { return origGet.call(this); },
-          set: function(val) {
-            origSet.call(this, val);
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(function() {
-              try {
-                var all = origGet.call(document).split(';');
-                var cookieMap = {};
-                for (var j = 0; j < all.length; j++) {
-                  var c = all[j].trim();
-                  if (!c) continue;
-                  var eq = c.indexOf('=');
-                  if (eq > -1) {
-                    cookieMap[c.substring(0, eq).trim()] = c.substring(eq + 1).trim();
-                  }
-                }
-                window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
-                  __bpm: true, type: 'cookie', cookies: cookieMap
-                }));
-              } catch(e) {}
-            }, 300);
-          },
-          configurable: true
-        });
-      }
-    }
-
-    // --- Snapshot cookies after page loads to capture server-set cookies ---
-    setTimeout(function() {
-      try {
-        var cookieDesc2 = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie')
-          || Object.getOwnPropertyDescriptor(HTMLDocument.prototype, 'cookie');
-        var getter = cookieDesc2 && cookieDesc2.get ? cookieDesc2.get : null;
-        var raw = getter ? getter.call(document) : document.cookie;
-        var all = raw.split(';');
-        var cookieMap = {};
-        for (var j = 0; j < all.length; j++) {
-          var c = all[j].trim();
-          if (!c) continue;
-          var eq = c.indexOf('=');
-          if (eq > -1) {
-            cookieMap[c.substring(0, eq).trim()] = c.substring(eq + 1).trim();
-          }
-        }
-        if (Object.keys(cookieMap).length > 0) {
-          window.ReactNativeWebView && window.ReactNativeWebView.postMessage(JSON.stringify({
-            __bpm: true, type: 'cookie', cookies: cookieMap
-          }));
-        }
-      } catch(e) {}
-    }, 2000);
-
     // --- Clear and hydrate localStorage ---
     var lsData = ${lsEntries};
     try { localStorage.clear(); } catch(e) {}
@@ -266,5 +230,13 @@ export function useProfileSession(profileId: string) {
 `;
   }, []);
 
-  return { ready, storageData, applyMessage, buildInjectJS };
+  return {
+    ready,
+    storageData,
+    applyMessage,
+    buildInjectJS,
+    trackUrl,
+    saveNativeCookiesForUrl,
+    saveAllNativeCookies,
+  };
 }

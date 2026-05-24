@@ -12,6 +12,8 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.browserprofilemanager.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#0a0a14",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

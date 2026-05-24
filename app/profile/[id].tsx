@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert,
+  TextInput, Alert, Platform,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import CookieManager from '@react-native-cookies/cookies';
 import { useProfiles } from '../../context/ProfileContext';
 import { generateFingerprint } from '../../hooks/useFingerprint';
 import colors from '../../hooks/useColors';
@@ -69,6 +70,9 @@ export default function ProfileEditScreen() {
           onPress: async () => {
             await AsyncStorage.removeItem(`__bpm_storage_${id}`);
             await AsyncStorage.removeItem(`__bpm_cookies_${id}`);
+            if (Platform.OS !== 'web') {
+              try { await CookieManager.clearAll(); } catch {}
+            }
             Alert.alert('Done', 'Session data cleared for this profile.');
           },
         },

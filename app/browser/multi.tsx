@@ -176,10 +176,12 @@ function BrowserTile({
 
   const handleNavChange = useCallback((navState: { url: string }) => {
     setCurrentUrl(navState.url);
+    session.trackUrl(navState.url);
+    session.saveNativeCookiesForUrl(navState.url);
     if (isMaster && mirroring) {
       onMasterUrlChange(navState.url);
     }
-  }, [isMaster, mirroring, onMasterUrlChange]);
+  }, [isMaster, mirroring, onMasterUrlChange, session]);
 
   if (!session.ready) {
     return (
