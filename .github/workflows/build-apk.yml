@@ -14,7 +14,7 @@ jobs:
     timeout-minutes: 60
 
     env:
-      NODE_OPTIONS: --max-old-space-size=4096
+      NODE_OPTIONS: ""
 
     steps:
       - name: Checkout repository
@@ -82,7 +82,9 @@ jobs:
 
       - name: Build APK (Release)
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon --max-workers=1 --stacktrace
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: ./gradlew assembleRelease --no-daemon --max-workers=1 --info 2>&1 | tail -500
 
       - name: Find APK file
         id: find-apk
