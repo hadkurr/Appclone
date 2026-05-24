@@ -70,8 +70,11 @@ jobs:
 
       - name: Configure Gradle and limit to arm64 ABI only
         run: |
-          # Memory settings
+          # Memory settings - replace existing jvmargs
           sed -i 's/org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+UseG1GC/' android/gradle.properties
+
+          # Ensure newline at end of file before appending
+          echo "" >> android/gradle.properties
           echo "org.gradle.workers.max=1" >> android/gradle.properties
           echo "org.gradle.parallel=false" >> android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
@@ -79,12 +82,15 @@ jobs:
 
           # Only build for arm64-v8a to save memory
           echo "reactNativeArchitectures=arm64-v8a" >> android/gradle.properties
+          
+          # Verify file is correct
+          cat android/gradle.properties
 
       - name: Build APK (Release)
         working-directory: android
         env:
           NODE_OPTIONS: --max-old-space-size=4096
-        run: ./gradlew assembleRelease --no-daemon --max-workers=1 --info 2>&1 | tail -500
+        run: ./gradlew assembleRelease --no-daemon --max-workers=1 --stacktrace
 
       - name: Find APK file
         id: find-apk
