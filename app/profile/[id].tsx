@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, ScrollView, StyleSheet, TouchableOpacity,
-  TextInput, Alert,
+  TextInput, Alert, Platform,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import CookieManager from '@react-native-cookies/cookies';
 import { useProfiles } from '../../context/ProfileContext';
 import { generateFingerprint } from '../../hooks/useFingerprint';
-import { BrowserProfile } from '../../types/profile';
 import colors from '../../hooks/useColors';
 
 export default function ProfileEditScreen() {
@@ -55,6 +56,29 @@ export default function ProfileEditScreen() {
       ]
     );
   }, []);
+
+  const handleClearSessionData = useCallback(() => {
+    if (!id) return;
+    Alert.alert(
+      'Clear Session Data',
+      'This will clear all cookies, localStorage and sessionStorage for this profile. You will be logged out of all sites. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: async () => {
+            await AsyncStorage.removeItem(`__bpm_storage_${id}`);
+            await AsyncStorage.removeItem(`__bpm_cookies_${id}`);
+            if (Platform.OS !== 'web') {
+              try { await CookieManager.clearAll(); } catch {}
+            }
+            Alert.alert('Done', 'Session data cleared for this profile.');
+          },
+        },
+      ]
+    );
+  }, [id]);
 
   if (!profile) {
     return (
@@ -160,6 +184,11 @@ export default function ProfileEditScreen() {
         </View>
       </View>
 
+      <TouchableOpacity style={styles.clearSessionButton} onPress={handleClearSessionData}>
+        <Feather name="trash-2" size={16} color={colors.error} />
+        <Text style={styles.clearSessionText}>Clear Session Data (Cookies, Storage)</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity
         style={[styles.saveButton, !name.trim() && styles.saveButtonDisabled]}
         onPress={handleSave}
@@ -227,4 +256,10 @@ const styles = StyleSheet.create({
   },
   saveButtonDisabled: { opacity: 0.5 },
   saveButtonText: { color: colors.white, fontFamily: 'Inter_600SemiBold', fontSize: 16 },
+  clearSessionButton: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: colors.surface, borderRadius: 12, paddingVertical: 14, marginBottom: 12,
+    borderWidth: 1, borderColor: colors.error + '40',
+  },
+  clearSessionText: { color: colors.error, fontFamily: 'Inter_500Medium', fontSize: 14 },
 });

@@ -34,6 +34,7 @@ export default function BrowserScreen() {
       setProfileStatus(id, 'running');
       return () => {
         setProfileStatus(id, 'idle');
+        session.saveAllNativeCookies();
       };
     }
   }, [id, profile]);
@@ -64,10 +65,12 @@ export default function BrowserScreen() {
     if (navState.title) {
       setPageTitle(navState.title);
     }
+    session.trackUrl(navState.url);
+    session.saveNativeCookiesForUrl(navState.url);
     if (id && navState.title && navState.url !== currentUrl) {
       addSession(id, navState.url, navState.title || navState.url);
     }
-  }, [id, currentUrl, addSession]);
+  }, [id, currentUrl, addSession, session]);
 
   const handleMessage = useCallback((event: { nativeEvent: { data: string } }) => {
     try {
