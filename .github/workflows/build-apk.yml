@@ -15,6 +15,7 @@ jobs:
 
     env:
       GRADLE_OPTS: -Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+UseG1GC" -Dorg.gradle.workers.max=1 -Dorg.gradle.parallel=false
+      NODE_OPTIONS: --max-old-space-size=4096
 
     steps:
       - name: Checkout repository
@@ -83,9 +84,20 @@ jobs:
           # Also set via gradle property
           echo "reactNativeArchitectures=arm64-v8a" >> android/gradle.properties
 
+      - name: Bundle JS separately
+        run: |
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --entry-file node_modules/expo-router/entry.js \
+            --bundle-output android/app/src/main/assets/index.android.bundle \
+            --assets-dest android/app/src/main/res
+
       - name: Build APK (Release)
         working-directory: android
-        run: ./gradlew assembleRelease --no-daemon --max-workers=1
+        run: |
+          export BUNDLE_COMMAND="" 
+          ./gradlew assembleRelease --no-daemon --max-workers=1 --stacktrace -x bundleReleaseJsAndAssets
 
       - name: Find APK file
         id: find-apk
