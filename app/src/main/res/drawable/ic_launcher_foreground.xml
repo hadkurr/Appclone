@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Background circle -->
+    <path
+        android:fillColor="#1565C0"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+
+    <!-- Clone icon - two overlapping rectangles -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,34h24c2.2,0 4,1.8 4,4v24c0,2.2 -1.8,4 -4,4h-24c-2.2,0 -4,-1.8 -4,-4v-24c0,-2.2 1.8,-4 4,-4z" />
+
+    <path
+        android:fillColor="#42A5F5"
+        android:pathData="M46,42h24c2.2,0 4,1.8 4,4v24c0,2.2 -1.8,4 -4,4h-24c-2.2,0 -4,-1.8 -4,-4v-24c0,-2.2 1.8,-4 4,-4z" />
+
+    <!-- Plus sign -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M56,52v8h-4v-8h-8v-4h8v-8h4v8h8v4z"
+        android:strokeWidth="0" />
+
+</vector>
