@@ -73,6 +73,13 @@ export default function DashboardScreen() {
             <Feather name="zap" size={20} color={colors.warning} />
             <Text style={styles.actionText}>Script Runner</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.actionButton, { borderColor: '#ff3355' }]}
+            onPress={() => router.push('/game')}
+          >
+            <Feather name="crosshair" size={20} color="#ff3355" />
+            <Text style={[styles.actionText, { color: '#ff3355' }]}>GTA 6</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
