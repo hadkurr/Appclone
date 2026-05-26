@@ -78,6 +78,14 @@ export default function RootLayout() {
               presentation: 'card',
             }}
           />
+          <Stack.Screen
+            name="game/index"
+            options={{
+              title: 'GTA Vice City',
+              headerShown: false,
+              presentation: 'card',
+            }}
+          />
         </Stack>
       </ProfileProvider>
     </ErrorBoundary>
